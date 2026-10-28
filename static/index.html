@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<!--
+  2048 AI 助手 — 应用页面
+  作者：lenyanjgk（冷颜） · 2048 AI Web Assistant · MIT
+  字体走 /nav.css 里自托管的 Public Sans + JetBrains Mono，无外部请求。
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2048 AI 助手 · Expectimax 最优着法</title>
+<link rel="preload" href="/fonts/public-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/nav.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ============ 顶栏：字标 + 跨页导航 + 主题 ============ -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="currentColor"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="currentColor" opacity=".55"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity=".55"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity=".28"/></svg>
+      </span>
+      <span class="wordmark-text">2048 <em>AI</em></span>
+    </a>
+    <nav class="pagenav" aria-label="页面导航">
+      <a href="/" class="is-here" aria-current="page">助手</a>
+      <a href="/admin">对局记录</a>
+      <a href="/site/">官网</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="picker-label">主题</span>
+      <div class="theme-swatches" id="theme-swatches" role="group" aria-label="选择界面主题"></div>
+    </div>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- ============ 页面标题 + 当前这一步（finding） ============ -->
+  <div class="page-head">
+    <h1>2048 AI 助手</h1>
+    <p class="subline" id="flow-hint">Expectimax + bitboard + 置换表 · 输入任意局面，算最优着法</p>
+  </div>
+
+  <!-- ============ 模式 ============ -->
+  <nav class="mode-tabs" aria-label="对局模式">
+    <button id="mode-assistant" class="mode-tab is-active" type="button" aria-pressed="true">助手模式</button>
+    <button id="mode-free" class="mode-tab" type="button" aria-pressed="false">自由对战</button>
+  </nav>
+
+  <main class="grid">
+
+    <!-- ============ 左列：棋盘 ============ -->
+    <section class="col-board" aria-label="棋盘">
+
+      <!-- 一条容器用 1px 分隔线切开，不做成四张卡片 -->
+      <div class="scores">
+        <div class="kpi" id="kpi-score">
+          <span class="kpi-label">分数</span>
+          <b class="kpi-val num" id="score">0</b>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">最大块</span>
+          <b class="kpi-val num" id="max-tile">-</b>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">步数</span>
+          <b class="kpi-val num" id="moves">0</b>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">用时</span>
+          <b class="kpi-val num" id="timer">00:00</b>
+        </div>
+      </div>
+
+      <div class="board-wrap">
+        <div id="board" class="board" data-ui></div>
+        <div id="overlay" class="overlay hidden"></div>
+      </div>
+
+      <div class="controls">
+        <div class="ctrl-group">
+          <span class="ctrl-label">着法</span>
+          <button id="btn-hint" class="btn btn-primary" type="button" title="对当前棋盘跑一次 Expectimax 搜索，给出最优着法与四方向期望分（空格键同效）">AI 推荐</button>
+          <button id="btn-cancel" class="btn" type="button" disabled title="中断正在进行的计算，采用已经算完的最深一层">停止</button>
+        </div>
+        <div class="ctrl-group">
+          <span class="ctrl-label">对局</span>
+          <button id="btn-auto" class="btn" type="button" title="让 AI 从当前局面一路下到底，每步都看得见（仅自由对战可用）">自动演示</button>
+          <button id="btn-nospawn" class="btn" type="button" title="真实对局里这一步没有出新块时用，跳过等待录入">本步无新方块</button>
+        </div>
+        <div class="ctrl-group">
+          <span class="ctrl-label">局面</span>
+          <button id="btn-new" class="btn" type="button" title="重开一局，分数/步数/用时全部归零">新游戏</button>
+          <button id="btn-clear" class="btn" type="button" title="清空整个盘面，回到等待录入状态">清空棋盘</button>
+          <button id="btn-sample" class="btn" type="button" title="填入一个中盘示例局面，可以直接点「AI 推荐」试效果">载入示例</button>
+        </div>
+        <div class="ctrl-group">
+          <span class="ctrl-label">选项</span>
+          <button id="btn-autoshift" class="btn btn-toggle is-on" type="button"
+                  aria-pressed="true" title="开启后：点「AI 推荐」算完会自动把本地棋盘搬到推荐后的局面，并提示你走哪个方向">推荐后自动移位</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 右列：答案 ============ -->
+    <section class="col-ai" aria-label="推荐与搜索">
+
+      <!-- 屏幕的唯一问题：这一步该往哪走 -->
+      <div class="panel">
+        <h2>推荐着法</h2>
+        <div class="rec">
+          <div class="rec-arrow" id="rec-arrow" aria-hidden="true">—</div>
+          <div class="rec-body">
+            <p class="rec-dir" id="rec-dir">等待计算</p>
+            <p class="rec-sub">期望分 <b class="num" id="rec-expect">—</b></p>
+          </div>
+        </div>
+        <ul class="moves" id="moves">
+          <li class="move" data-move="0">
+            <span class="move-name">上</span>
+            <span class="move-track"><i class="bar"></i></span>
+            <span class="move-score num">—</span>
+          </li>
+          <li class="move" data-move="1">
+            <span class="move-name">下</span>
+            <span class="move-track"><i class="bar"></i></span>
+            <span class="move-score num">—</span>
+          </li>
+          <li class="move" data-move="2">
+            <span class="move-name">左</span>
+            <span class="move-track"><i class="bar"></i></span>
+            <span class="move-score num">—</span>
+          </li>
+          <li class="move" data-move="3">
+            <span class="move-name">右</span>
+            <span class="move-track"><i class="bar"></i></span>
+            <span class="move-score num">—</span>
+          </li>
+        </ul>
+        <p class="moves-note">四个方向的期望分（Expectimax 估值，百万级），只用于比较方向优劣，不是游戏分数。</p>
+      </div>
+
+      <!-- 搜索结果：左边落点预览，右边搜索统计 -->
+      <div class="panel">
+        <div class="result">
+          <div class="result-block">
+            <h3>落点预览</h3>
+            <p class="result-note" id="preview-note">推荐后显示落点</p>
+            <div id="preview" class="preview-board"></div>
+          </div>
+          <div class="result-block">
+            <h3>搜索统计</h3>
+            <p class="result-note">本次推荐的内部数据</p>
+            <dl class="kv">
+              <div class="kv-row"><dt>启发分</dt><dd class="num" id="st-heur">—</dd></div>
+              <div class="kv-row"><dt>实际分</dt><dd class="num" id="st-actual">—</dd></div>
+              <div class="kv-row"><dt>搜索深度</dt><dd class="num" id="st-depth">—</dd></div>
+              <div class="kv-row"><dt>节点数</dt><dd class="num" id="st-nodes">—</dd></div>
+              <div class="kv-row"><dt>缓存命中</dt><dd class="num" id="st-hits">—</dd></div>
+              <div class="kv-row"><dt>耗时</dt><dd class="num" id="st-time">—</dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      <!-- 搜索参数 -->
+      <div class="panel">
+        <h2>搜索参数</h2>
+        <div class="params">
+          <div class="param">
+            <label for="depth-mode">深度模式</label>
+            <select id="depth-mode">
+              <option value="adaptive" selected>自适应（max(3, 不同数字-2)）</option>
+              <option value="fixed">固定深度</option>
+            </select>
+          </div>
+          <div class="param">
+            <label for="fixed-depth">固定深度 <span class="param-val num" id="fixed-depth-val">4</span></label>
+            <input type="range" id="fixed-depth" min="1" max="10" value="4">
+          </div>
+          <div class="param">
+            <label for="max-depth">深度上限 <span class="param-val num" id="max-depth-val">8</span></label>
+            <input type="range" id="max-depth" min="1" max="12" value="8">
+          </div>
+          <div class="param">
+            <label for="budget">思考预算 <span class="param-val num" id="budget-val">3000</span> ms</label>
+            <input type="range" id="budget" min="200" max="60000" step="100" value="3000">
+            <label class="check-label" for="budget-unlimited">
+              <input type="checkbox" id="budget-unlimited">
+              <span>不限时长（搜到目标深度为止，可能数分钟）</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>运行日志</h2>
+        <div id="log" class="log" role="log" aria-live="polite"></div>
+      </div>
+
+    </section>
+  </main>
+
+  <details class="help-fold" id="help-fold">
+    <summary>
+      <span class="hf-title">游戏辅助说明</span>
+      <span class="hf-hint">每个按钮做什么 · 怎么走 · 参数含义</span>
+      <svg class="hf-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </summary>
+    <div class="help-body">
+
+      <!-- 按钮清单：左边是界面上那个按钮的微缩样子，右边一句话说清它干什么 -->
+      <div class="help-group">
+        <h4>按钮</h4>
+        <dl class="btn-ref">
+          <div class="btn-ref-row">
+            <dt><span class="key key-primary">AI 推荐</span></dt>
+            <dd>对当前棋盘跑一次 Expectimax 搜索，给出最优着法和四个方向的期望分。<b>空格键</b>同效。这是你最常用的一个按钮。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">停止</span></dt>
+            <dd>中断正在进行的计算。已经算完的最深一层会保留下来当时的结果，不会白等。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">自动演示</span></dt>
+            <dd>让 AI 从当前局面一路自己下到底，每一步都看得见。下完自动重开，适合看算法怎么走。<b>只有自由对战能用</b>，助手模式下置灰。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">本步无新方块</span></dt>
+            <dd>真实对局里走了这一步但盘面上没有出新块（死局前、或你玩的版本规则不同）时点它，跳过"录入新方块"那一步。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">新游戏</span></dt>
+            <dd>重开一局。分数、最大块、步数、用时全部归零。助手模式下是清空盘面回到等待录入。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">清空棋盘</span></dt>
+            <dd>把 16 个格全部清空，重新录入一个任意局面。不会动你的搜索参数。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">载入示例</span></dt>
+            <dd>填入一个中盘示例局面，方便你直接点「AI 推荐」看效果，不用自己摆 16 个格子。</dd>
+          </div>
+          <div class="btn-ref-row">
+            <dt><span class="key">推荐后自动移位</span></dt>
+            <dd>开着的时候，点完「AI 推荐」本地棋盘会自动搬到推荐后的局面，你只要照着方向键在真实游戏里走。关掉的话棋盘不动，只出推荐。</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- 两种模式 -->
+      <div class="help-group">
+        <h4>两种模式</h4>
+        <dl>
+          <dt>助手模式</dt>
+          <dd>对着<b>你正在打的真实对局</b>用。AI 只出推荐，棋由你走，新出的块由你录进来。循环是：<b>① 输入棋盘 → ② AI 推荐 → ③ 录入新方块</b>，然后回到 ②。</dd>
+          <dt>自由对战</dt>
+          <dd>在这个页面里直接下棋，方向键 / WASD 手动走，系统自动出新块。也可以点「自动演示」让 AI 接手。</dd>
+        </dl>
+      </div>
+
+      <div class="help-group">
+        <h4>操作</h4>
+        <ul>
+          <li><b>左键</b>点格子 = 数值乘 2（2→4→8→…→32768→2 循环）</li>
+          <li><b>右键</b>点格子 = 清空该格</li>
+          <li>也可直接键盘输入数值（非 2 的幂自动向下取整）</li>
+          <li>助手模式：<b>方向键 / WASD</b> = 在真实游戏中执行推荐着法；<b>空格</b> = AI 推荐</li>
+          <li>勾选「不限时长」后计算可能跑数分钟，可点「停止」中断</li>
+        </ul>
+      </div>
+
+      <div class="help-group">
+        <h4>参数</h4>
+        <dl>
+          <dt>深度模式</dt>
+          <dd>搜多深。<b>自适应</b>按局面自动定深（默认）；<b>固定深度</b>始终用同一个深度，适合对比实验。</dd>
+          <dt>自适应 max(3, 不同数字 − 2)</dt>
+          <dd>盘面上有几种不同的数，就搜多深：种类越少（开局）搜得越浅，种类越多（残局）搜得越深。例如有 2/4/8/16/32 共 5 种数，深度就是 3；有 10 种数就是 8。开局分支太多搜不动，残局分支少值得深搜。</dd>
+          <dt>固定深度</dt>
+          <dd>每一步都只向前推演固定层数（你走一步 → 系统出块 → …→ 到点就用启发式打分）。数值越大算得越准也越慢。</dd>
+          <dt>深度上限</dt>
+          <dd>给自适应模式封顶，防止残局搜太深把浏览器卡住。两种模式都受它限制。</dd>
+          <dt>思考预算</dt>
+          <dd>单次推荐最多想多久。想不完就采用已经算完的最深一层，所以这是"准而不慢"的保证，不是精确值。调小 → 出推荐更快但可能更浅；调大 → 更准但要等。</dd>
+        </dl>
+        <p class="params-note">实际生效深度 = 上述规则算出的目标深度，再被思考预算截断。「搜索深度」里的前者是本次实际用的深度，后者是目标深度。</p>
+      </div>
+    </div>
+  </details>
+
+</div>
+<script src="/themes.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

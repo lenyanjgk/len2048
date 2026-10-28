@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="no-js">
+<!--
+  2048 AI 官网 — 落地页
+  作者：lenyanjgk（冷颜） · 2048 AI Web Assistant · MIT
+  字体走 /nav.css 里自托管的 Public Sans + JetBrains Mono，无外部请求。
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2048 AI · 把每一步都算到最优 — Expectimax 求解器</title>
+<meta name="description" content="输入任意 2048 局面,毫秒级给出最优着法。Expectimax 搜索 + 64 位 bitboard + 置换表 + 概率截断,纯 Python 后端,原生网页前端,零第三方依赖。">
+<link rel="preload" href="/fonts/public-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/nav.css">
+<link rel="stylesheet" href="/site/site.css">
+</head>
+<body>
+
+<!-- 极光背景 -->
+<div class="aurora" aria-hidden="true">
+  <div class="aurora-blob a1"></div>
+  <div class="aurora-blob a2"></div>
+  <div class="aurora-blob a3"></div>
+  <div class="grid-overlay"></div>
+</div>
+
+<!-- 顶栏：字标 + 页内锚点 + 跨页导航 + 主题（与另外两个页面同一套） -->
+<header class="topbar" id="nav">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/site/">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="9" height="9" rx="2" fill="currentColor" opacity=".9"/><rect x="13" y="2" width="9" height="9" rx="2" fill="currentColor" opacity=".55"/><rect x="2" y="13" width="9" height="9" rx="2" fill="currentColor" opacity=".55"/><rect x="13" y="13" width="9" height="9" rx="2" fill="currentColor" opacity=".3"/></svg>
+      </span>
+      <span class="wordmark-text">2048 <em>AI</em></span>
+    </a>
+    <nav class="anchors" aria-label="页面章节">
+      <a href="#features">特性</a>
+      <a href="#algorithm">算法</a>
+      <a href="#demo">演示</a>
+      <a href="#stack">技术栈</a>
+      <a href="#oss">开源</a>
+    </nav>
+    <div class="topbar-right">
+      <nav class="pagenav" aria-label="页面导航">
+        <a href="/">助手</a>
+        <a href="/admin">对局记录</a>
+        <a href="/site/" class="is-here" aria-current="page">官网</a>
+      </nav>
+      <span class="picker-label">主题</span>
+      <div class="theme-swatches" id="theme-swatches" role="group" aria-label="选择界面主题"></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow reveal" style="--i:0">
+      <span class="dot" aria-hidden="true"></span>
+      开源 · MIT · 零第三方依赖
+    </p>
+    <h1 class="hero-title reveal" style="--i:1">
+      把 2048 的每一步<br>都算到<span class="grad">最优</span>
+    </h1>
+    <p class="hero-sub reveal" style="--i:2">
+      Expectimax 搜索 + 64 位 bitboard + 置换表 + 概率截断。<br>
+      输入任意局面,毫秒级给出最优着法与四方向期望分。
+    </p>
+    <div class="hero-cta reveal" style="--i:3">
+      <a class="btn btn-primary btn-lg" href="/">打开应用<span class="arrow" aria-hidden="true">→</span></a>
+      <a class="btn btn-ghost btn-lg" href="#algorithm">看算法怎么算的</a>
+    </div>
+    <ul class="hero-stats reveal" style="--i:4">
+      <li><b data-count="470000" data-suffix="">0</b><span>节点 / 秒</span></li>
+      <li><b data-count="8" data-suffix=" 层">0</b><span>最深搜索</span></li>
+      <li><b data-count="4" data-suffix=" 套">0</b><span>界面主题</span></li>
+      <li><b data-count="0" data-suffix="">0</b><span>运行时依赖</span></li>
+    </ul>
+  </div>
+
+  <!-- 实时对局演示板 -->
+  <div class="hero-visual reveal" style="--i:2">
+    <div class="board-frame">
+      <div class="board-frame-bar">
+        <span class="bf-label">LIVE · AI 自动对局</span>
+        <span class="bf-score">分数 <b id="demo-score">0</b></span>
+      </div>
+      <div class="demo-board" id="demo-board" role="img" aria-label="AI 自动对局的实时棋盘演示"></div>
+    </div>
+    <div class="hero-visual-caption">
+      <span class="pulse" aria-hidden="true"></span>
+      搜索深度 <b id="demo-depth">3</b> · 节点 <b id="demo-nodes">0</b>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 特性 BENTO ============ -->
+<section class="section" id="features">
+  <div class="section-head">
+    <p class="kicker">Features</p>
+    <h2>不只是能跑,是<span class="grad">算得准</span></h2>
+    <p class="section-sub">从棋盘表示到搜索剪枝,每一层都为速度与强度让路。</p>
+  </div>
+
+  <div class="bento">
+    <article class="card card-wide reveal" style="--i:0">
+      <div class="card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/><path d="M12 3v0M5.6 5.6l2.8 2.8M18.4 5.6l-2.8 2.8"/></svg>
+      </div>
+      <h3>Expectimax 双递归</h3>
+      <p>2048 是"玩家 + 随机出块"的不完全信息博弈:玩家走位确定,取 <b>max</b>;出块随机,取<b>期望</b>。用 expectimax 而非 minimax,才对得上这个游戏的本质。</p>
+      <div class="card-code">
+        <code>move_node(b)     = max over 4 方向的 tilechoose(移动后)</code>
+        <code>tilechoose(b, p) = Σ 每空格 × {2: 0.9, 4: 0.1} × move_node(放块后)</code>
+      </div>
+    </article>
+
+    <article class="card reveal" style="--i:1">
+      <div class="card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18M15 3v18"/></svg>
+      </div>
+      <h3>64 位 bitboard</h3>
+      <p>整个 4×4 棋盘压进一个整数,每格 4 bit 存 rank。一次移动就是一趟位运算,棋盘状态可直接当哈希键。</p>
+    </article>
+
+    <article class="card reveal" style="--i:2">
+      <div class="card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="1.6" fill="currentColor"/><circle cx="14" cy="12" r="1.6" fill="currentColor"/><circle cx="10" cy="17" r="1.6" fill="currentColor"/></svg>
+      </div>
+      <h3>65536 项查找表</h3>
+      <p>移动与评分全部预计算成 6 张表,运行时只查表。Python 也能跑到约 47 万节点/秒。</p>
+    </article>
+
+    <article class="card reveal" style="--i:3">
+      <div class="card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 18L20 6"/><path d="M14 6h6v6"/><path d="M4 12l6 6"/></svg>
+      </div>
+      <h3>概率截断 + 递进深度</h3>
+      <p>累计概率低于阈值的分支直接截止;深度随局面中不同数字的种数增减——开局浅、残局深,算力花在刀刃上。</p>
+    </article>
+
+    <article class="card card-wide reveal" style="--i:4">
+      <div class="card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><path d="M7 11l3 3 7-7"/></svg>
+      </div>
+      <h3>助手模式:AI 出推荐,你走棋</h3>
+      <p>为真实对局设计。输入当前棋盘 → 看最优着法与四方向期望分 → 在真实游戏中走出同样方向 → 录个新出的方块 → 继续。左键点格子数值乘 2,右键清空,键盘也能直接改。</p>
+      <div class="card-flow">
+        <span class="flow-step">① 输入棋盘</span>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <span class="flow-step">② AI 推荐</span>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <span class="flow-step">③ 走棋</span>
+        <span class="flow-arrow" aria-hidden="true">→</span>
+        <span class="flow-step">④ 录新块</span>
+      </div>
+    </article>
+
+    <article class="card reveal" style="--i:5">
+      <div class="card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 019 9h-9z" fill="currentColor" stroke="none" opacity=".35"/></svg>
+      </div>
+      <h3>4 套主题 + 真实滑动</h3>
+      <p>方块按身份追踪做 transform 滑动,合并脉冲、新块弹入。全程尊重系统减少动效偏好。</p>
+    </article>
+  </div>
+</section>
+
+<!-- ============ 算法 ============ -->
+<section class="section section-alt" id="algorithm">
+  <div class="section-head">
+    <p class="kicker">Algorithm</p>
+    <h2>搜索树里发生的<span class="grad">每一毫秒</span></h2>
+    <p class="section-sub">三层结构:棋盘表示 → 启发式评分 → 带剪枝的 expectimax 搜索。</p>
+  </div>
+
+  <div class="algo-grid">
+    <div class="algo-visual reveal" style="--i:0">
+      <svg viewBox="0 0 420 300" class="tree" role="img" aria-label="Expectimax 搜索树示意图:MAX 节点下挂 CHANCE 节点,CHANCE 节点再展开为 MAX 节点">
+        <g class="tree-edges">
+          <path d="M210 40 L110 110" /><path d="M210 40 L210 110" /><path d="M210 40 L310 110" />
+          <path d="M110 110 L60 190" /><path d="M110 110 L110 190" /><path d="M110 110 L160 190" />
+          <path d="M210 110 L160 190" /><path d="M210 110 L210 190" /><path d="M210 110 L260 190" />
+          <path d="M310 110 L260 190" /><path d="M310 110 L310 190" /><path d="M310 110 L360 190" />
+        </g>
+        <g class="tree-nodes">
+          <circle cx="210" cy="40" r="17" class="n-max"/><text x="210" y="45">MAX</text>
+          <circle cx="110" cy="110" r="15" class="n-chance"/><text x="110" y="115">C</text>
+          <circle cx="210" cy="110" r="15" class="n-chance"/><text x="210" y="115">C</text>
+          <circle cx="310" cy="110" r="15" class="n-chance"/><text x="310" y="115">C</text>
+          <circle cx="60" cy="190" r="12" class="n-max"/><text x="60" y="194">M</text>
+          <circle cx="110" cy="190" r="12" class="n-max"/><text x="110" y="194">M</text>
+          <circle cx="160" cy="190" r="12" class="n-max"/><text x="160" y="194">M</text>
+          <circle cx="210" cy="190" r="12" class="n-max"/><text x="210" y="194">M</text>
+          <circle cx="260" cy="190" r="12" class="n-max"/><text x="260" y="194">M</text>
+          <circle cx="310" cy="190" r="12" class="n-max"/><text x="310" y="194">M</text>
+          <circle cx="360" cy="190" r="12" class="n-max"/><text x="360" y="194">M</text>
+        </g>
+        <g class="tree-legend">
+          <circle cx="30" cy="270" r="6" class="n-max"/><text x="44" y="274">MAX · 玩家四选一</text>
+          <circle cx="200" cy="270" r="6" class="n-chance"/><text x="214" y="274">CHANCE · 每空格 2(90%)/4(10%)</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="algo-copy">
+      <article class="algo-item reveal" style="--i:1">
+        <h3><span class="num">01</span>启发式评分</h3>
+        <p>每行按四项打分,行列各算一次求和:</p>
+        <pre class="code-block"><code>heur = 200000                  <span class="c"># 失败重罚</span>
+      + 270  × 空格数
+      + 700  × 可合并对数
+      − 47   × min(左单调性, 右单调性)
+      − 11   × Σ rank^3.5</code></pre>
+        <p class="algo-note">分别对应四个 2048 核心策略:保空格、造可合并、维持单调、压制总数。注意:这个分值在百万量级,只用于方向之间比大小,<b>不是游戏分数</b>。</p>
+      </article>
+
+      <article class="algo-item reveal" style="--i:2">
+        <h3><span class="num">02</span>两个关键剪枝</h3>
+        <p><b>概率截断</b> — 出块位置的概率乘积衰减极快,累计概率低于 0.0001 的分支直接按启发分截止,搜索树砍掉一大截而强度几乎无损。</p>
+        <p><b>递进深度</b> — <code>max(3, 盘面不同数字种数 − 2)</code>。开局分支爆炸搜得浅,残局分支收缩值得深挖。</p>
+      </article>
+
+      <article class="algo-item reveal" style="--i:3">
+        <h3><span class="num">03</span>纯 Python 的两个工程处理</h3>
+        <p><b>有界循环</b> — 编译型语言靠定宽整数溢出归零来结束位移循环,Python 大整数无上限会死循环,必须显式限制次数。</p>
+        <p><b>迭代加深 + 死线</b> — 从深度 1 逐层加深,超时回退到最近完成的深度,保证任何机器都在预算内出推荐。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 演示说明 ============ -->
+<section class="section" id="demo">
+  <div class="section-head">
+    <p class="kicker">Playground</p>
+    <h2>两种用法,一个<span class="grad">引擎</span></h2>
+    <p class="section-sub">助手模式辅助真实对局,自由模式让 AI 自己下到底。</p>
+  </div>
+
+  <div class="modes">
+    <article class="mode-card reveal" style="--i:0">
+      <span class="mode-tag">推荐</span>
+      <h3>助手模式</h3>
+      <p>你才是玩家。AI 只负责算,你负责走。适合在手机上玩 2048 时开着一个网页求提示。</p>
+      <ul class="mode-list">
+        <li>点击格子录入真实局面</li>
+        <li>四方向期望分柱状对比</li>
+        <li>执行后的棋盘预览 + 变化格高亮</li>
+        <li>深度 / 节点 / 缓存命中 / 耗时全透明</li>
+      </ul>
+      <a class="btn btn-primary" href="/">试用助手模式</a>
+    </article>
+
+    <article class="mode-card reveal" style="--i:1">
+      <span class="mode-tag alt">自动</span>
+      <h3>自由对战</h3>
+      <p>AI 从当前局面自动下到底,方块真实滑动。也可以手动下棋。</p>
+      <ul class="mode-list">
+        <li>自动演示:逐步展示每次推荐</li>
+        <li>方向键 / WASD 手动走棋</li>
+        <li>深度模式、思考预算实时可调</li>
+        <li>「不限时长」可榨干最后一层深度</li>
+      </ul>
+      <a class="btn btn-ghost" href="/">切到自由对战</a>
+    </article>
+  </div>
+</section>
+
+<!-- ============ 技术栈 ============ -->
+<section class="section section-alt" id="stack">
+  <div class="section-head">
+    <p class="kicker">Specs</p>
+    <h2>技术规格</h2>
+  </div>
+
+  <div class="spec-table reveal" style="--i:0">
+    <div class="spec-row spec-head">
+      <span>维度</span><span>实现</span><span>说明</span>
+    </div>
+    <div class="spec-row">
+      <span>棋盘表示</span><span><code>64 位整数</code></span><span>每格 4 bit 存 rank,最大支持 32768</span>
+    </div>
+    <div class="spec-row">
+      <span>搜索算法</span><span><code>Expectimax</code></span><span>MAX 节点取最大,CHANCE 节点取概率期望</span>
+    </div>
+    <div class="spec-row">
+      <span>查找表</span><span><code>6 × 65536</code></span><span>移动 4 张 + 评分 2 张,启动时预生成</span>
+    </div>
+    <div class="spec-row">
+      <span>剪枝</span><span><code>概率截断 + 置换表</code></span><span>cprob &lt; 0.0001 截止;缓存带深度校验</span>
+    </div>
+    <div class="spec-row">
+      <span>深度策略</span><span><code>自适应 / 固定</code></span><span>max(3, 不同数字种数 − 2),可设上限</span>
+    </div>
+    <div class="spec-row">
+      <span>后端</span><span><code>Python 标准库</code></span><span>http.server + JSON API,无框架</span>
+    </div>
+    <div class="spec-row">
+      <span>前端</span><span><code>原生 HTML/CSS/JS</code></span><span>无构建步骤,无打包器,无框架</span>
+    </div>
+    <div class="spec-row">
+      <span>环境要求</span><span><code>Python 3.8+</code></span><span>不安装任何第三方库,可离线运行</span>
+    </div>
+    <div class="spec-row">
+      <span>实测强度</span><span><code>150ms/步 → 合成 512</code></span><span>300 步回归只锁不变式，不限时长可搜到 8 层</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 开源 ============ -->
+<section class="section" id="oss">
+  <div class="oss-card reveal" style="--i:0">
+    <p class="kicker">Open Source</p>
+    <h2>三套测试,一条命令跑起来</h2>
+    <p class="oss-sub">算法正确性用朴素实现逐方向对拍,前后端移动语义零偏差,助手模式流程有集成测试兜底。</p>
+
+    <div class="oss-grid">
+      <div class="oss-block">
+        <h3>启动</h3>
+        <pre class="code-block"><code>git clone &lt;repo&gt; &amp;&amp; cd len-2048-ai
+python server.py        <span class="c"># http://127.0.0.1:8765</span></code></pre>
+      </div>
+      <div class="oss-block">
+        <h3>测试</h3>
+        <pre class="code-block"><code>python test_ai.py       <span class="c"># 算法 / 不变式 / 回归</span>
+node test_logic.js      <span class="c"># 前后端移动语义对拍</span>
+node test_flow.js       <span class="c"># 助手模式流程集成测试</span></code></pre>
+      </div>
+    </div>
+
+    <div class="oss-badges">
+      <span class="badge">MIT License</span>
+      <span class="badge">Python 3.8+</span>
+      <span class="badge">零依赖</span>
+      <span class="badge">可离线</span>
+    </div>
+
+    <div class="oss-cta">
+      <a class="btn btn-primary btn-lg" href="/">打开应用<span class="arrow" aria-hidden="true">→</span></a>
+      <a class="btn btn-ghost btn-lg" href="/admin">看对局记录<span class="arrow" aria-hidden="true">→</span></a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="9" height="9" rx="2" fill="currentColor" opacity=".9"/><rect x="13" y="2" width="9" height="9" rx="2" fill="currentColor" opacity=".55"/><rect x="2" y="13" width="9" height="9" rx="2" fill="currentColor" opacity=".55"/><rect x="13" y="13" width="9" height="9" rx="2" fill="currentColor" opacity=".3"/></svg>
+      </span>
+      <span>2048 AI · Expectimax 求解器</span>
+    </div>
+    <nav class="footer-links" aria-label="页脚导航">
+      <a href="#features">特性</a>
+      <a href="#algorithm">算法</a>
+      <a href="#stack">技术栈</a>
+      <a href="/">应用</a>
+    </nav>
+    <p class="footer-note">MIT License · 启发式权重与查找表结构参考了社区成熟的 2048 AI 公开实现</p>
+  </div>
+</footer>
+
+<script src="/themes.js"></script>
+<script src="/site/site.js"></script>
+</body>
+</html>

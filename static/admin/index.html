@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<!--
+  对局记录管理页 — 应用页面
+  作者：lenyanjgk（冷颜） · 2048 AI Web Assistant · MIT
+  字体走 /nav.css 里自托管的 Public Sans + JetBrains Mono，无外部请求。
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对局记录 · 2048 AI 助手</title>
+<link rel="preload" href="/fonts/public-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/nav.css">
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+
+<!-- ============ 顶栏：字标 + 跨页导航 + 主题 ============ -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="currentColor"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="currentColor" opacity=".55"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity=".55"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="currentColor" opacity=".28"/></svg>
+      </span>
+      <span class="wordmark-text">2048 <em>AI</em></span>
+    </a>
+    <nav class="pagenav" aria-label="页面导航">
+      <a href="/">助手</a>
+      <a href="/admin" class="is-here" aria-current="page">对局记录</a>
+      <a href="/site/">官网</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="picker-label">主题</span>
+      <div class="theme-swatches" id="theme-swatches" role="group" aria-label="选择界面主题"></div>
+    </div>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- ============ 页面标题 ============ -->
+  <div class="page-head">
+    <h1>对局记录</h1>
+    <p class="subline" id="subline">每一局的分数、最大块、步数、用时与终局盘面，着法可逐步回放。</p>
+  </div>
+
+  <!-- ============ 汇总：一条容器用 1px 线切开 ============ -->
+  <div class="scores" id="kpis">
+    <div class="kpi"><span class="kpi-label">总局数</span><b class="kpi-val num" id="k-games">-</b></div>
+    <div class="kpi"><span class="kpi-label">死局</span><b class="kpi-val num" id="k-over">-</b></div>
+    <div class="kpi"><span class="kpi-label">最高分</span><b class="kpi-val num" id="k-best">-</b></div>
+    <div class="kpi"><span class="kpi-label">平均分</span><b class="kpi-val num" id="k-avg">-</b></div>
+    <div class="kpi"><span class="kpi-label">最大块记录</span><b class="kpi-val num" id="k-tile">-</b></div>
+    <div class="kpi"><span class="kpi-label">总步数</span><b class="kpi-val num" id="k-moves">-</b></div>
+  </div>
+
+  <!-- ============ 筛选行 ============ -->
+  <div class="filters">
+    <div class="filter">
+      <label for="f-mode">模式</label>
+      <select id="f-mode">
+        <option value="">全部</option>
+        <option value="assistant">助手模式</option>
+        <option value="free">自由对战</option>
+      </select>
+    </div>
+    <div class="filter">
+      <label for="f-over">状态</label>
+      <select id="f-over">
+        <option value="">全部</option>
+        <option value="1">死局</option>
+        <option value="0">进行中</option>
+      </select>
+    </div>
+    <div class="filter">
+      <label for="f-order">排序</label>
+      <select id="f-order">
+        <option value="updated">最近更新</option>
+        <option value="score">分数最高</option>
+        <option value="moves">步数最多</option>
+      </select>
+    </div>
+    <div class="filter filter-grow">
+      <label for="f-q">搜索</label>
+      <input type="search" id="f-q" placeholder="按 ID 或备注过滤" autocomplete="off">
+    </div>
+    <button class="btn" id="f-refresh" type="button">刷新</button>
+  </div>
+
+  <!-- ============ 主体：表格 + 详情 ============ -->
+  <main class="grid">
+    <section class="panel table-panel" aria-label="对局列表">
+      <div class="table-scroll">
+        <table class="games">
+          <thead>
+            <tr>
+              <th class="num">ID</th>
+              <th>模式</th>
+              <th class="num">分数</th>
+              <th class="num">最大块</th>
+              <th class="num">步数</th>
+              <th class="num">用时</th>
+              <th>状态</th>
+              <th>更新于</th>
+              <th><span class="sr-only">操作</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="table-foot">
+        <span id="count" class="tfoot-note">加载中…</span>
+        <div class="pager">
+          <button class="btn btn-sm" id="p-prev" type="button" disabled>上一页</button>
+          <span class="num" id="p-label">1 / 1</span>
+          <button class="btn btn-sm" id="p-next" type="button" disabled>下一页</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 详情栏：选中一局后显示盘面 + 着法流水 -->
+    <aside class="panel detail" id="detail" aria-label="对局详情">
+      <div class="detail-empty" id="detail-empty">
+        <p>选一行看这局的盘面和着法。</p>
+      </div>
+      <div class="detail-body hidden" id="detail-body">
+        <div class="detail-head">
+          <h2>第 <span class="num" id="d-id">-</span> 局</h2>
+          <p class="detail-sub" id="d-sub">-</p>
+        </div>
+
+        <div class="d-block">
+          <h3 id="d-board-title">终局盘面</h3>
+          <p class="result-note" id="d-board-note">点下面任意一步，看那一步走完后的盘面</p>
+          <div class="preview-board" id="d-board"></div>
+        </div>
+
+        <dl class="kv" id="d-kv"></dl>
+
+        <div class="d-block">
+          <h3>着法流水 <span class="num d-count" id="d-move-count">0</span></h3>
+          <div class="moves-scroll">
+            <table class="moves">
+              <thead>
+                <tr><th class="num">步</th><th>方向</th><th class="num">得分</th><th class="num">走完后</th></tr>
+              </thead>
+              <tbody id="d-moves"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="detail-foot">
+          <button class="btn btn-danger" id="d-del" type="button">删除这一局</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+</div>
+<script src="/themes.js"></script>
+<script src="/admin/admin.js"></script>
+</body>
+</html>

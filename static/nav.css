@@ -1,0 +1,133 @@
+/* ============================================================
+   共享顶栏 —— 应用（/）、对局记录（/admin）、官网（/site/）同一套。
+   结构：一个字标 + 几个朴素链接 + 一个动作（主题）。
+   规则：无毛玻璃、无背景模糊、无浮动药丸导航；当前页 = 标签下同一条
+   1px accent 线，和模式签、最佳方向、选中行用的是同一套语言。
+
+   三个页面的令牌命名不一样（应用/管理页用 --text，官网用 --fg），
+   所以这里先把各页的令牌桥接成一套内部名字，下面的规则就与页面无关了。
+
+   字体也在这里声明一次，三个页面共用（自托管 latin 子集，无外部请求）。
+
+   作者：lenyanjgk（冷颜） · 2048 AI Web Assistant · MIT
+   ============================================================ */
+
+/* ---------- 自托管字体（latin 子集，零外部请求） ---------- */
+@font-face {
+  font-family: 'Public Sans';
+  src: url('/fonts/public-sans-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+.topbar {
+  /* ---- 令牌桥接：哪一页能提供哪个就用哪个，否则给兜底 ---- */
+  --nv-bg: var(--bg, #171719);
+  --nv-fg: var(--text, var(--fg, #ffffff));
+  --nv-muted: var(--muted, #b4b4b4);
+  --nv-accent: var(--accent, #4a8ad6);
+  --nv-rule: var(--rule, var(--border, #222224));
+  --nv-pad: var(--page-pad, 24px);
+
+  position: sticky; top: 0; z-index: 50;
+  background: var(--nv-bg);
+  border-bottom: 1px solid var(--nv-rule);
+  transition: background-color 0.35s ease, border-color 0.35s ease;
+}
+
+.topbar-inner {
+  max-width: 1280px; margin: 0 auto; padding: 0 var(--nv-pad);
+  min-height: 52px;
+  display: flex; align-items: center; gap: 20px;
+}
+
+/* ---- 字标 ---- */
+.wordmark {
+  display: inline-flex; align-items: center; gap: 9px;
+  text-decoration: none; color: var(--nv-fg); flex-shrink: 0; border-radius: 4px;
+}
+.wordmark .mark { width: 20px; height: 20px; color: var(--nv-accent); display: block; flex-shrink: 0; }
+.wordmark .mark svg { width: 100%; height: 100%; display: block; }
+.wordmark-text { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
+.wordmark-text em { font-style: normal; color: var(--nv-accent); }
+.wordmark:hover .mark { color: var(--nv-fg); }
+.wordmark:active { opacity: 0.75; }
+.wordmark:focus-visible { outline: 2px solid var(--nv-accent); outline-offset: 3px; }
+
+/* ---- 跨页导航：三个页面同一套，当前页打标记 ---- */
+.pagenav { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.pagenav a {
+  position: relative; display: inline-block; padding: 5px 11px;
+  font-size: var(--fs-body, 14px); color: var(--nv-muted); text-decoration: none;
+  white-space: nowrap; border-radius: 4px;
+  transition: color 0.18s ease, background-color 0.18s ease;
+}
+.pagenav a:hover { color: var(--nv-fg); background: var(--raised, var(--card, rgba(128, 128, 128, 0.08))); }
+.pagenav a:focus-visible { outline: 2px solid var(--nv-accent); outline-offset: 1px; }
+.pagenav a.is-here { color: var(--nv-fg); font-weight: 600; }
+.pagenav a.is-here::after {
+  content: ""; position: absolute; left: 11px; right: 11px; bottom: 0;
+  height: 1px; background: var(--nv-accent);
+}
+
+/* ---- 右侧：页内锚点 + 主题 ---- */
+.topbar-right { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-shrink: 0; }
+
+/* 官网的页内锚点，和跨页导航视觉上分开一组 */
+.anchors { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.anchors a {
+  position: relative; display: inline-block; padding: 5px 11px;
+  font-size: var(--fs-body, 14px); color: var(--nv-muted); text-decoration: none;
+  white-space: nowrap; border-radius: 4px; transition: color 0.18s ease, background-color 0.18s ease;
+}
+.anchors a:hover { color: var(--nv-fg); background: var(--raised, var(--card, rgba(128, 128, 128, 0.08))); }
+.anchors a:focus-visible { outline: 2px solid var(--nv-accent); outline-offset: 1px; }
+
+/* 主题色板：三个页面共用同一套控件 */
+.picker-label { font-size: var(--fs-small, 12px); color: var(--nv-muted); white-space: nowrap; }
+.theme-swatches { display: flex; gap: 6px; }
+.theme-swatch {
+  width: 22px; height: 22px; border-radius: 4px; cursor: pointer; padding: 0;
+  border: 1px solid var(--control, var(--border-strong, #3a3a3e)); background: var(--surface, var(--card, transparent));
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  transition: transform 0.16s var(--ease-out, ease), border-color 0.16s ease;
+}
+.theme-swatch:hover { transform: translateY(-1px); }
+.theme-swatch:active { transform: scale(0.94); }
+.theme-swatch:focus-visible { outline: 2px solid var(--nv-accent); outline-offset: 2px; }
+.theme-swatch i { width: 5px; height: 5px; border-radius: 1px; display: block; }
+.theme-swatch[aria-pressed="true"] { border-color: var(--nv-accent); }
+
+/* ---- 页面标题（顶栏下面那一块） ---- */
+.page-head { margin-bottom: 20px; }
+.page-head h1 {
+  font-size: var(--fs-title, 26px); font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.15;
+}
+.page-head .subline {
+  margin-top: 4px; font-size: var(--fs-small, 12px);
+  color: var(--nv-muted); min-height: 2.6em; max-width: 62em;
+}
+.page-head .subline b { color: var(--nv-fg); font-weight: 600; }
+
+/* ---- 手机：锚点收起，只留跨页导航和主题 ---- */
+@media (max-width: 900px) {
+  .anchors { display: none; }
+  .topbar-inner { gap: 12px; }
+}
+@media (max-width: 560px) {
+  .picker-label { display: none; }
+  .pagenav a { padding: 5px 8px; }
+  .wordmark-text { display: none; }
+  .topbar-inner { min-height: 48px; }
+  .theme-swatch { width: 26px; height: 26px; }
+  .theme-swatch i { width: 6px; height: 6px; }
+}
